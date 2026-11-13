@@ -666,12 +666,14 @@ RustAndroidTarget.entries.forEach { target ->
     }
 }
 
-// Google only ships x86_64 Linux NDK toolchains, so on a Linux arm64 host the Android Rust targets can never
-// link (clang: "Exec format error"). Desktop packaging doesn't need them; Android is built on x86_64 runners.
+// Google only ships x86_64 Linux and Windows NDK toolchains, so on a Linux arm64 host the Android Rust targets
+// can never link (clang: "Exec format error"), and on Windows arm64 they would only run emulated. Desktop
+// packaging doesn't need them; Android is built on x86_64 runners.
 run {
-    val isLinuxArm64Host = System.getProperty("os.name").lowercase().contains("linux") &&
+    val hostOs = System.getProperty("os.name").lowercase()
+    val isArm64NdkLessHost = (hostOs.contains("linux") || hostOs.contains("windows")) &&
         System.getProperty("os.arch").lowercase() in setOf("aarch64", "arm64")
-    if (isLinuxArm64Host) {
+    if (isArm64NdkLessHost) {
         // Gobley generates the UniFFI bindings from the first Android build's library by default; use the host's.
         uniffi {
             generateFromLibrary {

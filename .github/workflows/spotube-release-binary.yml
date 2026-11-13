@@ -23,6 +23,7 @@ on:
           - linux-x86_64
           - linux-aarch64
           - windows
+          - windows-arm64
           - macos
           - ios
       dry_run:
@@ -114,7 +115,9 @@ jobs:
         run: |
           case "${{ matrix.name }}" in
             linux-*)     files="${{ matrix.name }}/libcompose_webview_linux.so" ;;
-            windows-x64) files="win32-x64/compose_webview_windows.dll win32-x64/WebView2Loader.dll" ;;
+            # build.bat cross-compiles the ARM64 backend too, but only warns when that fails
+            windows-x64) files="win32-x64/compose_webview_windows.dll win32-x64/WebView2Loader.dll
+                                win32-aarch64/compose_webview_windows.dll win32-aarch64/WebView2Loader.dll" ;;
           esac
           for f in $files; do
             test -f "webview-compose/src/jvmMain/resources/nucleus/native/$f" || { echo "::error::Missing $f"; exit 1; }
@@ -176,6 +179,7 @@ jobs:
           contents=$(unzip -l "$jar")
           for f in linux-x64/libcompose_webview_linux.so linux-aarch64/libcompose_webview_linux.so \
                    win32-x64/compose_webview_windows.dll win32-x64/WebView2Loader.dll \
+                   win32-aarch64/compose_webview_windows.dll win32-aarch64/WebView2Loader.dll \
                    darwin-aarch64/libcompose_webview_macos.dylib darwin-x64/libcompose_webview_macos.dylib; do
             grep -q "nucleus/native/$f" <<< "$contents" || { echo "::error::$jar is missing $f"; exit 1; }
           done
@@ -560,6 +564,65 @@ jobs:
         with:
           limit-access-to-actor: true
 
+  # GraalVM has no Windows ARM64 build (oracle/graal#9215), so Windows on ARM ships the JVM
+  # distribution (jlinked arm64 runtime) instead of a native image
+  build-windows-arm64:
+    name: Windows Desktop (ARM64)
+    needs: [validate-inputs, prepare-deps]
+    if: ${{ inputs.platform == 'all' || inputs.platform == 'windows-arm64' }}
+    timeout-minutes: 120
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download maven local
+        uses: actions/download-artifact@v8
+        with:
+          name: maven-local
+          path: ~/.m2/repository/
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # The Windows ARM runner image ships without an Android SDK/NDK, but :composeApp configuration needs both
+      # (Gobley's cargo plugin resolves the NDK directory for the Android Rust targets)
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: tools platform-tools ndk;28.2.13676358
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Package EXE
+        run: ./gradlew :composeApp:packageExe -Pnightly=${{ inputs.release_type == 'nightly' }} -PbuildNumber=${{ github.run_number }}
+
+      - name: Rename Windows artifacts
+        shell: pwsh
+        run: |
+          # Top level only: subfolders hold the unpacked app, and __* are electron-builder helpers
+          $EXE_FILE = Get-ChildItem -Path composeApp/build/compose/binaries/main/exe -Filter "*.exe" |
+            Where-Object { $_.Name -notlike '__*' } | Select-Object -First 1
+          Copy-Item $EXE_FILE.FullName Spotube-windows-arm64-setup.exe
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-exe-arm64
+          path: Spotube-windows-arm64-setup.exe
+
+      - name: Setup tmate session on failure
+        if: ${{ inputs.debug_ssh && failure() }}
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
+
   # GraalVM native-image can't cross-compile, so each CPU builds its own DMG on its own runner
   build-macos:
     name: macOS Desktop (${{ matrix.name }})
@@ -733,6 +796,7 @@ jobs:
       - build-linux
       - build-linux-arm64
       - build-windows
+      - build-windows-arm64
       - build-macos
       - build-ios
     runs-on: ubuntu-latest
@@ -804,6 +868,7 @@ jobs:
             linux-appimage-arm64/*.AppImage
             linux-tarball-arm64/*.tar.xz
             windows-exe/*.exe
+            windows-exe-arm64/*.exe
             macos-dmg/*.dmg
             macos-dmg-intel/*.dmg
             ios-ipa/*.ipa
