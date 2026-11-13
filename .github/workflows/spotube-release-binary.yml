@@ -1,6 +1,13 @@
 name: Release
 
 on:
+  # TEMPORARY (fork CI test only, not part of the PR)
+  workflow_call:
+    inputs:
+      release_type: { type: string, required: true }
+      platform: { type: string, required: true }
+      dry_run: { type: boolean, required: true }
+      debug_ssh: { type: boolean, required: false, default: false }
   workflow_dispatch:
     inputs:
       release_type:

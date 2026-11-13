@@ -1,0 +1,18 @@
+# TEMPORARY fork-only test harness, not part of the PR.
+# Runs the release workflow as a dry run for the windows-arm64 platform only (create-release is skipped).
+name: CI test windows-arm64
+
+on:
+  push:
+    branches: [ci-test-windows-arm64]
+
+jobs:
+  release:
+    uses: ./.github/workflows/spotube-release-binary.yml
+    permissions:
+      contents: write
+    with:
+      release_type: nightly
+      platform: windows-arm64
+      dry_run: true
+      debug_ssh: false
